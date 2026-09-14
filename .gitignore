@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environment
+.venv/
+
+# Environment variables
+.env
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Data
+data/raw/*
+!data/raw/venice/
+!data/raw/venice/venice/
+!data/raw/venice/venice/venice.gpkg
+!data/raw/mula-pavana-river/
+!data/raw/mula-pavana-river/mula-pavana-river.gpkg
+data/processed/*
+data/outputs/*
+data/geo_agent.db
+data/geo_agent.db-*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+/rag/

@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Geo Agent</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap"
+  rel="stylesheet"
+/>
+<link
+  rel="stylesheet"
+  href="/static/vendor/leaflet/leaflet.css"
+/>
+<link rel="stylesheet" href="/static/styles.css" />
+</head>
+<body>
+<div class="console">
+  <header class="console__header">
+    <div class="brand">
+      <span class="brand__mark">&#9678;</span>
+      <span class="brand__name">Geo Agent</span>
+      <span class="brand__tagline">autonomous GIS workflows</span>
+    </div>
+    <div class="header__status">
+      <span class="status-dot" id="status-dot"></span>
+      <span id="status-text">checking agent…</span>
+    </div>
+  </header>
+
+  <aside class="pane pane--control" aria-label="Run a task">
+    <section class="control-block">
+      <h2>Dataset</h2>
+      <div class="field-row">
+        <select id="dataset-select"></select>
+      </div>
+      <div class="field-row">
+        <label class="upload-btn" for="dataset-upload">Upload dataset (.gpkg or .zip)</label>
+        <input type="file" id="dataset-upload" accept=".gpkg,.zip,.geojson,.json" hidden />
+      </div>
+      <p class="hint" id="dataset-hint">No dataset selected.</p>
+    </section>
+
+    <section class="control-block">
+      <h2>
+        <span id="task-label">Task</span>
+        <button class="btn--text" id="new-chat-btn" hidden>New chat</button>
+      </h2>
+      <textarea
+        id="task-input"
+        rows="5"
+        placeholder="e.g. Find every building within 500m of the rivers and save it as a new layer."
+      ></textarea>
+      <button id="run-btn" class="btn btn--primary">Run</button>
+    </section>
+
+    <section class="control-block control-block--conversations">
+      <h2>Conversations</h2>
+      <ul id="conversation-list" class="conversation-list"></ul>
+    </section>
+  </aside>
+
+  <main class="pane pane--reasoning" aria-label="Agent reasoning">
+    <div class="pane__title">Reasoning</div>
+    <div class="legend">
+      <span class="legend__item"><span class="legend__swatch" style="background:#e8672a"></span>decision</span>
+      <span class="legend__item"><span class="legend__swatch" style="background:#4a7a94"></span>information</span>
+      <span class="legend__item"><span class="legend__swatch" style="background:#3f8a5e"></span>code</span>
+      <span class="legend__item"><span class="legend__swatch" style="background:#c1443a"></span>failure</span>
+    </div>
+    <ol id="timeline" class="timeline">
+      <li class="timeline__empty">Pick a dataset and write a task to start a chat with the agent.</li>
+    </ol>
+  </main>
+
+  <section class="pane pane--map" aria-label="Map">
+    <div class="map-toolbar">
+      <span>Map</span>
+      <div class="map-toolbar__controls">
+        <label><input type="checkbox" id="toggle-input-layer" checked /> context</label>
+        <select id="context-layer-select"><option value="">none</option></select>
+        <label><input type="checkbox" id="toggle-output-layer" checked /> result</label>
+        <button id="fit-bounds-btn" class="btn btn--ghost">Fit to results</button>
+      </div>
+    </div>
+    <div id="map"></div>
+    <div class="map-readout" id="map-readout">–, –</div>
+    <div class="map-attribution-note">&copy; OpenStreetMap &middot; CARTO</div>
+  </section>
+</div>
+
+<script src="/static/vendor/leaflet/leaflet.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

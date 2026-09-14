@@ -1,0 +1,30 @@
+# --- Agent orchestration ----------------------------------------------
+langgraph>=1.2
+
+# --- LLM providers -------------------------------------------------------
+google-genai>=1.0        # Gemini
+groq>=1.0
+ollama>=0.6
+
+# --- Geospatial stack ------------------------------------------------------
+geopandas==1.1.4
+shapely==2.1.2
+pyproj==3.7.2
+rasterio==1.5.1
+pyogrio>=0.10
+
+# --- RAG pipeline ----------------------------------------------------------
+sentence-transformers>=3.0
+qdrant-client>=1.10
+beautifulsoup4>=4.12
+requests>=2.31
+
+# --- Config / misc -----------------------------------------------------
+python-dotenv>=1.0
+numpy>=1.26
+matplotlib>=3.8
+
+# --- API server (apps/api) --------------------------------------------
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9

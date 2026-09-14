@@ -1,0 +1,63 @@
+corpus:
+  name: geospatial-gis-documentation
+  purpose: >
+    Official GIS documentation used as knowledge for the geospatial
+    Code Agent RAG system.
+
+  source_policy:
+    official_sources_only: true
+    third_party_sources: false
+    tutorials_from_unofficial_sources: false
+
+libraries:
+
+  geopandas:
+    version: "1.1.4"
+    source: "official"
+    documentation_url: "https://geopandas.org/en/stable/"
+    scope:
+      - user_guide
+      - api_reference
+      - advanced_guide
+      - examples
+
+  shapely:
+    version: "2.1.2"
+    source: "official"
+    documentation_url: "https://shapely.readthedocs.io/en/2.1.2/"
+    scope:
+      - user_manual
+      - api_reference
+
+  rasterio:
+    version: "1.5.1"
+    source: "official"
+    documentation_url: "https://rasterio.readthedocs.io/en/1.5.1/"
+    scope:
+      - user_guide
+      - advanced_topics
+      - python_api
+      - cli_reference
+
+  pyproj:
+    version: "3.7.2"
+    source: "official"
+    documentation_url: "https://pyproj4.github.io/pyproj/3.7.2/"
+    scope:
+      - getting_started
+      - api_reference
+      - advanced_examples
+      - crs
+      - coordinate_operations
+
+  gdal:
+    version: "3.8.4"
+    source: "official"
+    documentation_url: "https://gdal.org/en/3.8.4/"
+    scope:
+      - user_documentation
+      - python_api
+      - gdal_api
+      - ogr_api
+      - raster_processing
+      - vector_processing

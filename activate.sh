@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+
+source "$(dirname "${BASH_SOURCE[0]}")/.venv/bin/activate"
+unset PYTHONPATH
+
+echo "geo-agent environment activated"
