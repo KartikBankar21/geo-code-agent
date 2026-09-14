@@ -1,15 +1,15 @@
-# GeoSpatial CodeAgent
+# Geo-Code-Agent
 
 A geospatial code agent that uses documentation retrieval and dataset inspection to generate and execute Python geospatial workflows inside an isolated Docker sandbox.
 
-Instead of exposing GIS operations as a fixed collection of predefined tools, GeoSpatial CodeAgent allows the LLM to compose geospatial workflows dynamically using Python libraries such as GeoPandas and Shapely. Generated code is statically validated before execution, and execution failures are returned to the agent for diagnosis and retry.
+Instead of exposing GIS operations as a fixed collection of predefined tools, geo-code-agent allows the LLM to compose geospatial workflows dynamically using Python libraries such as GeoPandas and Shapely. Generated code is statically validated before execution, and execution failures are returned to the agent for diagnosis and retry.
 
-![GeoSpatial CodeAgent Web Interface](web-interface.png)
-*GeoSpatial CodeAgent web interface showing the reasoning trace, conversation history, task execution, and resulting map.*
+![geo-code-agent Web Interface](web-interface.png)
+*geo-code-agent web interface showing the reasoning trace, conversation history, task execution, and resulting map.*
 
 ## Overview
 
-GeoSpatial CodeAgent is designed around a simple idea:
+geo-code-agent is designed around a simple idea:
 
 > Let the agent write geospatial code, but strictly control what code is allowed to execute.
 
@@ -30,7 +30,7 @@ The system is orchestrated as a stateful LangGraph workflow, exposed over a Fast
 
 ## Architecture
 
-![GeoSpatial CodeAgent Architecture](agent-architecture.png)
+![geo-code-agent Architecture](agent-architecture.png)
 
 ## Why Code Generation?
 
@@ -44,7 +44,7 @@ A conventional tool-calling GIS agent could expose operations such as:
 
 and require the model to select and parameterize those operations.
 
-GeoSpatial CodeAgent takes a different approach.
+geo-code-agent takes a different approach.
 
 The agent generates Python code using the available geospatial programming libraries. This allows a single workflow to combine multiple operations and construct task-specific logic without requiring every possible GIS operation to be manually registered as an agent tool.
 
@@ -212,7 +212,7 @@ apps/
 
 **Backend (`apps/api`)** wraps the existing LangGraph agent  it does not reimplement any agent logic. A submitted task runs on a dedicated worker thread via `graph.stream(state, stream_mode="updates")`, and each node's output is translated into a small JSON event, persisted to SQLite, and pushed to the browser over Server-Sent Events. This means the reasoning trace in the UI is a direct view of the same graph in `packages/agent/graph.py`, not a simulation of it.
 
-![GeoSpatial CodeAgent Backend](backend.png)
+![geo-code-agent Backend](backend.png)
 
 **Conversations** (`apps/api/storage.py`) are the persistence unit  a chat thread scoped to one dataset, made up of one or more *turns* (each turn is one task run through the agent graph). They're stored in a local SQLite database (`data/geo_agent.db`, gitignored - it's runtime data, not something to commit) so past chats survive a server restart and show up in the sidebar.
 
@@ -257,7 +257,7 @@ Generated Python code is treated as untrusted.
 
 The execution pipeline therefore follows:
 
-![GeoSpatial CodeAgent Security Pipeline](security-pipeline.png)
+![geo-code-agent Security Pipeline](security-pipeline.png)
 
 This provides multiple layers of protection before generated code is executed.
 
@@ -285,7 +285,7 @@ Import and call-site checks resolve aliasing before matching  `import os as x; x
 ## Project Structure
 
 ```text
-GeoSpatial CodeAgent/
+geo-code-agent/
 ├── apps/
 │   ├── api/            # FastAPI backend (wraps the agent graph)
 │   └── ui/             # Plain HTML/CSS/JS frontend, served by the API
@@ -388,7 +388,7 @@ The suite (79 tests) covers the parts of the system that don't require Docker or
 
 The current V1 focuses on demonstrating the complete agent loop:
 
-![GeoSpatial CodeAgent](agent-end-to-end-flow.png)
+![geo-code-agent](agent-end-to-end-flow.png)
 
 The project is intentionally not presented as a fully autonomous general-purpose GIS system. Its purpose is to demonstrate a controlled architecture for LLM-driven geospatial code generation and execution.
 
