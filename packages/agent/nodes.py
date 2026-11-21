@@ -1,3 +1,4 @@
+import os
 from packages.agent.llm import get_llm_provider
 from packages.agent.tools import ToolRegistry
 from packages.execution.executor import Executor
@@ -7,27 +8,40 @@ from packages.execution.validator import validate_code
 llm = get_llm_provider()
 registry = ToolRegistry()
 
+# Reusable local executor so variables persist across multi-step chunks
+_local_executor: Executor | None = None
 
-def _format_docs(docs: list[dict]) -> str:
+
+def _get_local_executor() -> Executor:
+    global _local_executor
+    if _local_executor is None:
+        _local_executor = Executor()
+        _local_executor.start()
+    return _local_executor
+
+
+def reset_local_executor() -> None:
+    global _local_executor
+    if _local_executor is not None:
+        _local_executor.stop()
+        _local_executor = None
+
+
+def _format_docs(docs: list[dict], max_docs: int = 4, max_chars_per_doc: int = 1200) -> str:
     if not docs:
         return "No documentation has been retrieved yet."
 
+    # Keep only the top-scoring docs within token budget
+    top_docs = sorted(docs, key=lambda d: d.get("score", 0), reverse=True)[:max_docs]
     sections = []
 
-    for index, doc in enumerate(docs, start=1):
+    for index, doc in enumerate(top_docs, start=1):
+        snippet = (doc.get("text", "") or "")[:max_chars_per_doc]
         sections.append(
-            f"""
-DOCUMENT {index}
-Library: {doc.get("library", "")}
-Title: {doc.get("title", "")}
-Score: {doc.get("score", "")}
-Source: {doc.get("source", "")}
-
-{doc.get("text", "")}
-"""
+            f"DOCUMENT {index} [{doc.get('library', '')} - {doc.get('title', '')}]:\n{snippet}"
         )
 
-    return "\n".join(sections)
+    return "\n\n".join(sections)
 
 
 def _format_observations(observations: list[dict]) -> str:
@@ -35,188 +49,112 @@ def _format_observations(observations: list[dict]) -> str:
         return "No dataset observations have been collected yet."
 
     sections = []
-
     for index, observation in enumerate(observations, start=1):
         sections.append(
-            f"""
-OBSERVATION {index}
-Type: {observation.get("type", "")}
-Path: {observation.get("path", "")}
-Layer: {observation.get("layer", "")}
-Result:
-{observation.get("result", observation.get("layers", ""))}
-"""
+            f"OBSERVATION {index} ({observation.get('type', '')} | layer={observation.get('layer', '')}):\n"
+            f"{observation.get('result', observation.get('layers', ''))}"
         )
 
-    return "\n".join(sections)
+    return "\n\n".join(sections)
 
+
+def _format_execution_history(history: list[dict]) -> str:
+    if not history:
+        return "No code chunks have been executed yet in this session."
+
+    sections = []
+    for idx, item in enumerate(history, start=1):
+        sections.append(
+            f"--- CHUNK {idx} (status={item.get('status')}) ---\n"
+            f"Code:\n{item.get('code', '')}\n"
+            f"Stdout: {item.get('stdout', '').strip() or '(none)'}\n"
+            f"Artifacts: {item.get('artifacts', [])}\n"
+            f"Error: {item.get('error_message') or 'None'}"
+        )
+    return "\n\n".join(sections)
+
+MAX_AGENT_ITERATIONS = 15
 
 def agent_decide(state):
-    """
-    Central autonomous reasoning node.
-
-    The LLM decides what information or action is required next.
-    """
-
     task = state["task"]
     dataset_host_path = state["dataset_host_path"]
     dataset_sandbox_path = state["dataset_sandbox_path"]
 
     docs = state.get("retrieved_docs", [])
     observations = state.get("dataset_observations", [])
-
+    execution_history = state.get("execution_history", [])
     execution = state.get("execution_result")
     validation = state.get("validation_result")
-
     iteration = state.get("iteration", 0)
+
+    if iteration >= MAX_AGENT_ITERATIONS:
+        print(f"\n[AGENT] Action: finish | Reason: Reached max iterations ({MAX_AGENT_ITERATIONS}).")
+        return {
+            "agent_decision": {
+                "action": "finish",
+                "reason": f"Reached maximum iterations ({MAX_AGENT_ITERATIONS}).",
+                "query": "",
+                "path": "",
+                "layer": "",
+            },
+            "next_action": "finish",
+            "iteration": iteration + 1,
+        }
+
+    # Track already-completed observations to prevent infinite inspection loops
+    listed_paths = {
+        obs.get("path")
+        for obs in observations
+        if obs.get("type") == "layer_listing"
+    }
+    inspected_layers = {
+        (obs.get("path"), obs.get("layer"))
+        for obs in observations
+        if obs.get("type") == "layer_inspection"
+    }
 
     prompt = f"""
 You are the DECISION-MAKING NODE of an autonomous geospatial code agent.
-
 Your ONLY responsibility is to decide what the agent should do NEXT.
-
-You do NOT generate Python code in this node.
-You do NOT write pseudocode.
-You do NOT design the implementation.
-You do NOT execute GIS operations.
-
-A separate node named "generate_code" is responsible for generating Python code.
 
 USER TASK:
 {task}
 
 AUTHORITATIVE DATASET:
+Host path: {dataset_host_path}
+Sandbox path: {dataset_sandbox_path}
 
-Host path:
-{dataset_host_path}
+ALREADY COMPLETED OBSERVATIONS (DO NOT REPEAT THESE):
+- Layers already listed for paths: {sorted(p for p in listed_paths if p)}
+- Layers already inspected (path, layer): {sorted((p, l) for p, l in inspected_layers if p and l)}
 
-Sandbox path:
-{dataset_sandbox_path}
+MULTI-STEP EXECUTION MODEL:
+- The Python sandbox is STATEFUL: variables, imports, and GeoDataFrames created in earlier chunks stay in memory for subsequent chunks!
+- Break complex geospatial tasks into 2-4 small, verifiable steps (e.g., Chunk 1: load & filter features, print counts/CRS; Chunk 2: reproject & compute spatial buffer/join; Chunk 3: save final output to /sandbox/output/<filename>.gpkg).
+- Only choose "finish" AFTER the requested output file has been saved to /sandbox/output and verified via stdout.
 
-PATH RULES:
-- list_layers and inspect_layer operate on the HOST path.
-- Generated Python code operates inside the sandbox and must use the SANDBOX path.
-- Never change or invent either path.
-
-AVAILABLE INFORMATION-GATHERING ACTIONS:
-
-1. search_docs
-
-Search the indexed official GIS documentation.
-
-Use this when you need information about:
-- GeoPandas APIs
-- Shapely APIs
-- PyProj or CRS handling
-- Rasterio
-- spatial operations
-- parameters
-- file formats
-- library behavior
-- deprecated or changed APIs
-
-2. list_layers
-
-List the layers contained in the authoritative dataset.
-
-Use this when you do not yet know which dataset layers are relevant.
-
-3. inspect_layer
-
-Inspect one specific dataset layer.
-
-Use this when you need to know:
-- columns
-- CRS
-- geometry type
-- bounds
-- row count
-- available attributes
-
-CODE GENERATION:
-
-The action "generate_code" means:
-
-"Sufficient information has been collected. Delegate the actual GIS implementation to the generate_code node."
-
-When selecting "generate_code":
-
-- DO NOT generate Python code.
-- DO NOT write pseudocode.
-- DO NOT describe the implementation.
-- DO NOT add a "code" field.
-- DO NOT include code inside any JSON field.
-- ONLY return the decision JSON.
-
-The separate generate_code node will:
-1. use the available documentation and dataset observations
-2. generate the Python implementation
-3. use the sandbox path
-4. produce the actual GIS code
-
-The generated code will then be statically validated and executed inside a Docker sandbox.
-
-After execution, the result or error will be returned to this decision node.
-
-If execution fails, decide whether to:
-- search documentation
-- inspect more data
-- generate corrected code
-- finish if the result is nevertheless sufficient
-
-IMPORTANT ARCHITECTURAL RULE:
-
-There are NO predefined GIS operation tools.
-
-Do NOT select or reason about operations such as:
-- vector.buffer
-- vector.reproject
-- vector.spatial_intersection
-- vector.filter_features
-
-The actual GIS operations are implemented dynamically by the separate generate_code node.
-
-AVAILABLE ACTIONS:
-
-You must select EXACTLY ONE of:
-
-- search_docs
-- list_layers
-- inspect_layer
-- generate_code
-- finish
+AVAILABLE ACTIONS (choose EXACTLY ONE):
+1. "list_layers": List layers in the dataset (ONLY if not already listed).
+2. "inspect_layer": Inspect schema, CRS, geometry type, columns, and sample rows of a layer (ONLY if that layer has NOT been inspected yet).
+3. "search_docs": Search official GIS documentation (GeoPandas, Shapely, PyProj, Rasterio) to verify exact method names and parameters before coding.
+4. "generate_code": Generate the NEXT small Python code chunk to execute in the stateful sandbox.
+5. "finish": End the workflow once all steps are complete and output artifacts are generated.
 
 DECISION RULES:
+- NEVER call "list_layers" or "inspect_layer" for a path/layer already listed above. To inspect specific feature values (like river names), use "generate_code" to filter/print inside Python.
+- Consult "search_docs" at least once before generating code to confirm API signatures.
+- If previous chunks succeeded, inspect their stdout and decide whether another code chunk is needed or if the task is complete ("finish").
 
-1. If you do not know which layers exist:
-   choose "list_layers".
+CURRENT ITERATION: {iteration}
 
-2. If the relevant layer is known but its schema or attributes are unknown:
-   choose "inspect_layer".
-
-3. If you need technical GIS/API knowledge:
-   choose "search_docs".
-
-4. If you have enough information to implement the user's task:
-   choose "generate_code".
-
-5. If the task has already been successfully completed:
-   choose "finish".
-
-6. Do not request information that is already available in the dataset observations or retrieved documentation.
-
-7. Do not repeatedly inspect the same information unless the previous result was insufficient.
-
-8. If validation or execution failed, use the failure information to decide the next action.
-
-CURRENT ITERATION:
-{iteration}
+DATASET OBSERVATIONS:
+{_format_observations(observations)}
 
 RETRIEVED DOCUMENTATION:
 {_format_docs(docs)}
 
-DATASET OBSERVATIONS:
-{_format_observations(observations)}
+EXECUTED CODE CHUNKS SO FAR:
+{_format_execution_history(execution_history)}
 
 LATEST VALIDATION RESULT:
 {validation if validation else "None"}
@@ -224,81 +162,17 @@ LATEST VALIDATION RESULT:
 LATEST EXECUTION RESULT:
 {execution if execution else "None"}
 
-OUTPUT FORMAT:
-
-Return EXACTLY ONE JSON OBJECT.
-
-Do not return:
-- <think> tags
-- chain-of-thought
-- markdown
-- explanations outside JSON
-- Python code
-- pseudocode
-- a "code" field
-- any additional fields
-
-The JSON MUST contain exactly these five fields:
-
+Return EXACTLY ONE JSON object with these five keys:
 {{
     "action": "search_docs | list_layers | inspect_layer | generate_code | finish",
     "reason": "one short sentence explaining the decision",
     "query": "documentation query if action is search_docs, otherwise empty string",
-    "path": "HOST dataset path if action is list_layers or inspect_layer, otherwise empty string",
+    "path": "{dataset_host_path} if action is list_layers or inspect_layer, otherwise empty string",
     "layer": "layer name if action is inspect_layer, otherwise empty string"
 }}
-
-FIELD RULES:
-
-- search_docs:
-  - action = "search_docs"
-  - query = the required documentation query
-  - path = ""
-  - layer = ""
-
-- list_layers:
-  - action = "list_layers"
-  - query = ""
-  - path = "{dataset_host_path}"
-  - layer = ""
-
-- inspect_layer:
-  - action = "inspect_layer"
-  - query = ""
-  - path = "{dataset_host_path}"
-  - layer = the layer that needs inspection
-
-- generate_code:
-  - action = "generate_code"
-  - query = ""
-  - path = ""
-  - layer = ""
-
-- finish:
-  - action = "finish"
-  - query = ""
-  - path = ""
-  - layer = ""
-
-Remember:
-
-YOU ARE ONLY THE DECISION NODE.
-
-If the next step is code generation, output only:
-
-{{
-    "action": "generate_code",
-    "reason": "Sufficient information is available to implement the task.",
-    "query": "",
-    "path": "",
-    "layer": ""
-}}
-
-Do not generate the code yourself.
 """
 
     decision = llm.generate_json(prompt)
-
     action = decision.get("action")
 
     valid_actions = {
@@ -310,14 +184,42 @@ Do not generate the code yourself.
     }
 
     if action not in valid_actions:
-        raise RuntimeError(
-            f"Invalid agent action: {action}"
-        )
+        raise RuntimeError(f"Invalid agent action: {action}")
 
-    print()
-    print("[AGENT]")
-    print(f"Action: {action}")
-    print(f"Reason: {decision.get('reason', '')}")
+    # ANTI-LOOP GUARDRAIL:
+    # Block duplicate list_layers or inspect_layer calls on already-observed targets.
+    if action == "list_layers" and dataset_host_path in listed_paths:
+        action = "generate_code"
+        decision["action"] = "generate_code"
+        decision["reason"] = "Harness policy: dataset layers already listed; proceeding to code generation."
+        decision["path"] = ""
+        decision["layer"] = ""
+
+    elif action == "inspect_layer":
+        target_layer = decision.get("layer", "").strip()
+        if (dataset_host_path, target_layer) in inspected_layers:
+            action = "generate_code"
+            decision["action"] = "generate_code"
+            decision["reason"] = (
+                f"Harness policy: layer '{target_layer}' already inspected; proceeding to code generation."
+            )
+            decision["path"] = ""
+            decision["layer"] = ""
+
+    # DETERMINISTIC RAG HARNESSING GUARDRAIL:
+    # Ensure at least one RAG documentation lookup happens per conversation
+    # before code generation, while preserving free will thereafter.
+    if action == "generate_code" and len(docs) == 0:
+        action = "search_docs"
+        decision["action"] = "search_docs"
+        decision["query"] = f"geopandas spatial operations buffer sjoin to_crs for: {task[:120]}"
+        decision["reason"] = (
+            "Harness policy: verifying official GIS API documentation before first code generation."
+        )
+        decision["path"] = ""
+        decision["layer"] = ""
+
+    print(f"\n[AGENT] Action: {action} | Reason: {decision.get('reason', '')}")
 
     return {
         "agent_decision": decision,
@@ -326,112 +228,59 @@ Do not generate the code yourself.
     }
 
 
+
 def search_docs(state):
-    """Search RAG when requested by the LLM."""
-
     decision = state["agent_decision"]
-
     query = decision.get("query", "").strip()
 
     if not query:
-        raise RuntimeError(
-            "Agent selected search_docs without a query."
-        )
+        raise RuntimeError("Agent selected search_docs without a query.")
 
-    print()
-    print("[RAG]")
-    print(f"Query: {query}")
-
-    result = registry.search_docs(
-        query=query,
-        limit=8,
-    )
+    print(f"\n[RAG] Query: {query}")
+    result = registry.search_docs(query=query, limit=4)
 
     new_docs = result.get("results", [])
-
     existing = state.get("retrieved_docs", [])
-
-    existing_ids = {
-        doc.get("chunk_id")
-        for doc in existing
-    }
+    existing_ids = {doc.get("chunk_id") for doc in existing}
 
     unique_new_docs = [
-        doc
-        for doc in new_docs
-        if doc.get("chunk_id") not in existing_ids
+        doc for doc in new_docs if doc.get("chunk_id") not in existing_ids
     ]
 
-    print(
-        f"Retrieved: {len(new_docs)} | "
-        f"New: {len(unique_new_docs)}"
-    )
+    print(f"Retrieved: {len(new_docs)} | New: {len(unique_new_docs)}")
 
     return {
         "retrieved_docs": existing + unique_new_docs,
+        "docs_searched": True,
     }
 
 
 def list_dataset_layers(state):
-    """List dataset layers when requested by the LLM."""
-
     path = state["dataset_host_path"]
-
-    print()
-    print("[DATA]")
-    print(f"Listing layers: {path}")
-
+    print(f"\n[DATA] Listing layers: {path}")
     layers = registry.list_layers(path)
-
-    print(f"Layers: {layers}")
-
-    observations = state.get(
-        "dataset_observations",
-        [],
-    )
+    observations = state.get("dataset_observations", [])
 
     return {
-        "dataset_observations": observations + [
-            {
-                "type": "layer_listing",
-                "path": path,
-                "layers": layers,
-            }
-        ]
+        "dataset_observations": observations
+        + [{"type": "layer_listing", "path": path, "layers": layers}]
     }
 
 
 def inspect_dataset(state):
-    """Inspect a dataset layer when requested by the LLM."""
-
     path = state["dataset_host_path"]
-
-    decision = state["agent_decision"]
-
-    layer = decision.get("layer", "").strip()
+    layer = state["agent_decision"].get("layer", "").strip()
 
     if not layer:
-        raise RuntimeError(
-            "Agent selected inspect_layer without a layer."
-        )
+        raise RuntimeError("Agent selected inspect_layer without a layer.")
 
-    print()
-    print("[DATA]")
-    print(f"Inspecting: {path}")
-    print(f"Layer: {layer}")
-
-    result = registry.inspect_layer(
-        path=path,
-        layer=layer,
-    )
-
-    observations = state.get(
-        "dataset_observations",
-        [],
-    )
+    print(f"\n[DATA] Inspecting {path} -> layer={layer}")
+    result = registry.inspect_layer(path=path, layer=layer)
+    observations = state.get("dataset_observations", [])
 
     return {
-        "dataset_observations": observations + [
+        "dataset_observations": observations
+        + [
             {
                 "type": "layer_inspection",
                 "path": path,
@@ -443,130 +292,63 @@ def inspect_dataset(state):
 
 
 def generate_code(state):
-    """Generate the actual Python GIS action."""
-
     task = state["task"]
     dataset_path = state["dataset_sandbox_path"]
-
     docs = state.get("retrieved_docs", [])
-    observations = state.get(
-        "dataset_observations",
-        [],
-    )
-
+    observations = state.get("dataset_observations", [])
+    execution_history = state.get("execution_history", [])
     execution = state.get("execution_result")
     validation = state.get("validation_result")
 
     prompt = f"""
-You are the ACTION GENERATION component of an autonomous
-geospatial CODE AGENT.
+You are the ACTION GENERATION component of an autonomous geospatial CODE AGENT.
 
 USER TASK:
 {task}
 
-AUTHORITATIVE DATASET:
+AUTHORITATIVE DATASET (SANDBOX PATH):
 {dataset_path}
 
-The reasoning phase has determined that enough information
-has been collected to generate the actual GIS action.
+STATEFUL MULTI-STEP EXECUTION RULES:
+- The Docker Python worker keeps all variables and imports in memory across steps!
+- Write ONLY the NEXT focused step (keep it concise: 15-35 lines of clean Python).
+- Do NOT repeat work already completed in previous successful chunks; reuse variables already in memory.
+- Print concise verification info (e.g. row counts, CRS, sample values, saved file path) so the decision node can verify progress.
+- When saving the final spatial output, write it inside `/sandbox/output/` (e.g. `/sandbox/output/result.gpkg`).
 
-Write executable Python code that solves the user's task.
+ALLOWED LIBRARIES:
+- geopandas, shapely, pyproj, rasterio, os, pathlib
 
-IMPORTANT:
-
-You are a CODE AGENT.
-
-Do NOT call predefined GIS capabilities.
-
-Do NOT write JSON describing operations.
-
-Do NOT describe what should be done.
-
-Write the actual Python code.
-
-The code may use appropriate libraries such as:
-- geopandas
-- shapely
-- pyproj
-- rasterio
-
-Use the retrieved documentation as the technical reference.
-
-Use the dataset observations to understand the actual
-dataset structure.
-
-Do not invent columns, layer names, APIs, or parameters
-when the available information/documentation establishes them.
-
-The code will execute inside a controlled Docker sandbox.
-
-Security restrictions:
-- no subprocess
-- no os.system
-- no eval
-- no exec
-- no network access
-- no filesystem traversal
-
-The dataset is available under the authoritative path above.
-
-If a persistent result is required, write it to:
-
-/sandbox/output
-
-Print concise useful result information.
-
-RETRIEVED DOCUMENTATION:
-{_format_docs(docs)}
+SECURITY RESTRICTIONS:
+- No subprocess, no os.system, no eval/exec, no open(), no network access.
 
 DATASET OBSERVATIONS:
 {_format_observations(observations)}
 
-LATEST EXECUTION RESULT:
-{execution if execution else "None"}
+RETRIEVED DOCUMENTATION:
+{_format_docs(docs)}
+
+PREVIOUSLY EXECUTED CHUNKS (ALREADY IN SANDBOX MEMORY):
+{_format_execution_history(execution_history)}
 
 LATEST VALIDATION RESULT:
 {validation if validation else "None"}
 
-IMPORTANT VALIDATION FEEDBACK:
+LATEST EXECUTION RESULT:
+{execution if execution else "None"}
 
-If the latest validation result is invalid, you MUST correct
-the previously generated code.
-
-For every item in "import_violations":
-- Do NOT import that module.
-- Do NOT use that module in the generated code.
-
-For every item in "dangerous_operations":
-- Remove or replace that operation.
-
-If validation failed only because of forbidden imports or
-dangerous operations, do not repeat the same violation.
-
-Return ONLY Python code.
+Return ONLY valid Python code (no explanations outside code fences).
 """
 
-    print()
-    print("[AGENT] Generating Python action...")
-
+    print("\n[AGENT] Generating Python chunk...")
     code = llm.generate_code(prompt)
+    print(f"\n[CODE CHUNK]\n{'=' * 60}\n{code}\n{'=' * 60}")
 
-    print()
-    print("[CODE]")
-    print("=" * 80)
-    print(code)
-    print("=" * 80)
-
-    return {
-        "generated_code": code,
-    }
+    return {"generated_code": code}
 
 
 def validate_generated_code(state):
-    """Validate generated Python before execution."""
-
     code = state["generated_code"]
-
     result = validate_code(code)
 
     validation = {
@@ -577,34 +359,35 @@ def validate_generated_code(state):
         "dangerous_operations": result.dangerous_operations,
     }
 
-    print()
-    print("[VALIDATOR]")
-    print(validation)
-
-    return {
-        "validation_result": validation,
-    }
+    print(f"\n[VALIDATOR] {validation}")
+    return {"validation_result": validation}
 
 
 def execute_code(state):
-    """Execute validated Python inside the Docker sandbox."""
-
     if not state["validation_result"]["valid"]:
         return {}
 
-    executor = Executor()
+    code = state["generated_code"]
+    executor_url = os.getenv("SANDBOX_EXECUTOR_URL", "").strip()
 
-    print()
-    print("[SANDBOX] Starting...")
+    if executor_url:
+        from packages.execution.remote_executor import RemoteExecutor
 
-    executor.start()
+        secret = os.getenv("EXECUTOR_SHARED_SECRET", "").strip()
+        conversation_id = state.get("conversation_id", "default")
+        turn_id = state.get("turn_id", "default")
 
-    try:
-        result = executor.execute(
-            state["generated_code"]
+        print(f"\n[SANDBOX REMOTE] Executing chunk on Tier 3 (session={conversation_id})...")
+        remote = RemoteExecutor(executor_url, secret)
+        result = remote.execute(
+            code,
+            conversation_id=conversation_id,
+            turn_id=turn_id,
         )
-    finally:
-        executor.stop()
+    else:
+        executor = _get_local_executor()
+        print("\n[SANDBOX LOCAL] Executing chunk in persistent namespace...")
+        result = executor.execute(code)
 
     execution = {
         "status": result.status,
@@ -616,28 +399,28 @@ def execute_code(state):
         "artifacts": result.artifacts,
     }
 
-    print()
-    print("[SANDBOX RESULT]")
-    print(execution)
+    print(f"\n[SANDBOX RESULT] {execution}")
+
+    history = state.get("execution_history", [])
+    history_entry = {
+        "code": code,
+        "status": result.status,
+        "stdout": result.stdout[:1000],
+        "artifacts": result.artifacts,
+        "error_message": result.error_message,
+    }
 
     return {
         "execution_result": execution,
+        "execution_history": history + [history_entry],
     }
-
 
 def finish(state):
-    """Terminate the current task."""
-
     execution = state.get("execution_result", {})
+    print(f"\n[AGENT] Finished. Latest execution status: {execution.get('status', 'completed')}")
+    return {"status": "completed"}
 
-    print()
-    print("[AGENT] Finished.")
-    print(f"Status: {execution.get('status', 'completed')}")
-
-    return {
-        "status": "completed",
-    }
 
 def close_resources():
-    """Close resources owned by the agent."""
+    reset_local_executor()
     registry.close()

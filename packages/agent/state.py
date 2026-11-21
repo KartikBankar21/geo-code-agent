@@ -6,10 +6,7 @@ class AgentState(TypedDict, total=False):
     task: str
 
     # Dataset paths
-    # Host path is used by information-gathering operations.
     dataset_host_path: str
-
-    # Sandbox path is used by generated code during execution.
     dataset_sandbox_path: str
 
     # Agent conversation / reasoning history
@@ -17,17 +14,22 @@ class AgentState(TypedDict, total=False):
 
     # Knowledge retrieved from RAG
     retrieved_docs: list[dict]
+    docs_searched: bool
 
     # Information discovered from the dataset
     dataset_observations: list[dict]
 
-    # LLM-generated Python action
+    # Multi-step chunked code execution state
     generated_code: str
+    code_history: list[str]
+    execution_history: list[dict]
+    conversation_id: str
+    turn_id:str
 
     # Static validation result
     validation_result: dict
 
-    # Actual sandbox execution result
+    # Latest sandbox execution result
     execution_result: dict
 
     # LLM's latest decision

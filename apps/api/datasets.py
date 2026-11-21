@@ -1,8 +1,10 @@
+import os
 import re
 import shutil
 import zipfile
 from pathlib import Path
 
+import requests
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
 from apps.api import config
@@ -76,6 +78,30 @@ def _safe_extract_zip(zip_path: Path, target_dir: Path) -> None:
 
         archive.extractall(target_dir)
 
+def _sync_dataset_to_executor(dataset: Dataset) -> None:
+    """Forward newly uploaded vector files to Tier 3's /sandbox/input directory."""
+    executor_url = os.getenv("SANDBOX_EXECUTOR_URL", "").strip().rstrip("/")
+    if not executor_url:
+        return
+
+    secret = os.getenv("EXECUTOR_SHARED_SECRET", "").strip()
+    headers = {"X-Executor-Secret": secret} if secret else {}
+
+    for item in dataset.files:
+        host_file = config.PROJECT_ROOT / item.host_path
+        if not host_file.exists():
+            continue
+
+        rel_to_raw = f"{dataset.name}/{item.filename}"
+        with host_file.open("rb") as fh:
+            resp = requests.post(
+                f"{executor_url}/datasets/sync",
+                data={"relative_path": rel_to_raw},
+                files={"file": (host_file.name, fh, "application/octet-stream")},
+                headers=headers,
+                timeout=60,
+            )
+            resp.raise_for_status()
 
 @router.post("", response_model=Dataset)
 async def upload_dataset(
@@ -123,6 +149,14 @@ async def upload_dataset(
             "No supported vector file "
             f"({', '.join(sorted(config.VECTOR_EXTENSIONS))}) was found "
             "in the upload.",
+        )
+
+    try:
+        _sync_dataset_to_executor(dataset)
+    except Exception as e:
+        raise HTTPException(
+            502,
+            f"Dataset saved on API node, but failed to sync to execution node: {e}",
         )
 
     return dataset

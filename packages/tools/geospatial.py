@@ -32,7 +32,8 @@ def inspect_layer(
     layer: str | None = None,
 ) -> dict:
     """
-    Inspect a geospatial layer and return useful metadata.
+    Inspect a geospatial layer and return useful metadata plus a few
+    compact sample attribute rows so the agent sees actual column values.
     """
 
     dataset_path = Path(path)
@@ -52,6 +53,16 @@ def inspect_layer(
         **kwargs,
     )
 
+    non_geom_cols = [c for c in gdf.columns if c != gdf.geometry.name]
+    sample_df = gdf[non_geom_cols].head(3)
+    sample_rows = []
+    for record in sample_df.to_dict(orient="records"):
+        compact = {
+            k: (str(v)[:80] if v is not None else None)
+            for k, v in record.items()
+        }
+        sample_rows.append(compact)
+
     return {
         "rows": len(gdf),
         "columns": list(gdf.columns),
@@ -62,25 +73,5 @@ def inspect_layer(
             .to_dict()
         ),
         "bounds": gdf.total_bounds.tolist(),
+        "sample_rows": sample_rows,
     }
-
-
-if __name__ == "__main__":
-    path = (
-        "data/raw/"
-        "mula-pavana-river/"
-        "mula-pavana-river.gpkg"
-    )
-
-    print("Layers:")
-    print(list_layers(path))
-
-    print()
-    print("Inspecting buildings:")
-
-    print(
-        inspect_layer(
-            path,
-            layer="multipolygons",
-        )
-    )

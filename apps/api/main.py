@@ -1,3 +1,4 @@
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -14,11 +15,6 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Only close the agent's shared resources (Qdrant client, embedding
-    # model) once, when the server itself stops - not after each turn.
-    # See packages/agent/nodes.py: these are process-lifetime singletons
-    # on purpose, so re-closing them between turns would break the next
-    # one rather than clean anything up.
     if conversations.graph_already_built():
         from packages.agent.nodes import close_resources
 
@@ -29,13 +25,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Geo Agent API", lifespan=lifespan)
 
-# Permissive CORS for local development (the UI is normally served by
-# this same app, so this mostly matters if you point a separate dev
-# server at the API while iterating on the frontend).
+raw_origins = os.getenv("CORS_ORIGINS", "*").strip()
+allowed_origins = (
+    ["*"]
+    if raw_origins == "*"
+    else [o.strip().rstrip("/") for o in raw_origins.split(",") if o.strip()]
+)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_origins=allowed_origins,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
@@ -55,7 +55,4 @@ def health():
     }
 
 
-# Mounted last so the /api/* routes above always win; anything else
-# (starting with `/`) falls through to the static UI, with index.html
-# served at the root.
 app.mount("/", StaticFiles(directory="apps/ui", html=True), name="ui")

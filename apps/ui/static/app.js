@@ -1,4 +1,4 @@
-const API = "/api";
+const API = `${(window.GEO_AGENT_API_BASE || "").replace(/\/$/, "")}/api`;
 
 const el = (id) => document.getElementById(id);
 

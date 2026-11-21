@@ -1,3 +1,4 @@
+import os
 import asyncio
 import json
 import queue
@@ -309,6 +310,8 @@ def _run_turn(turn_id: str):
         "retrieved_docs": turn["retrieved_docs"],
         "dataset_observations": turn["dataset_observations"],
         "iteration": 0,
+        "conversation_id": conversation["id"],
+        "turn_id": turn_id
     }
 
     accumulated: dict[str, Any] = dict(initial_state)
@@ -446,6 +449,13 @@ def delete_conversation(conversation_id: str):
         raise HTTPException(404, "Conversation not found.")
 
     storage.delete_conversation(conversation_id)
+
+    executor_url = os.getenv("SANDBOX_EXECUTOR_URL", "").strip()
+    if executor_url:
+        from packages.execution.remote_executor import RemoteExecutor
+
+        secret = os.getenv("EXECUTOR_SHARED_SECRET", "").strip()
+        RemoteExecutor(executor_url, secret).delete_session(conversation_id)
 
     return {"deleted": True}
 

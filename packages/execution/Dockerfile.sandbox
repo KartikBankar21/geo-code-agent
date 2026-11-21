@@ -5,16 +5,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir \
-    geopandas \
-    shapely \
-    pyproj \
-    rasterio
+    geopandas==1.1.4 \
+    shapely==2.1.2 \
+    pyproj==3.7.2 \
+    rasterio==1.5.1 \
+    pyogrio
 
 WORKDIR /sandbox
 
 RUN useradd --create-home --shell /usr/sbin/nologin geoagent
 
-RUN mkdir -p /sandbox/input /sandbox/output \
+RUN mkdir -p /sandbox/input /sandbox/projects \
     && chown -R geoagent:geoagent /sandbox
 
 USER geoagent
