@@ -213,6 +213,10 @@ resource "aws_instance" "api_node" {
     s3_bucket       = aws_s3_bucket.artifacts.bucket
     aws_region      = var.aws_region
     vercel_origin   = var.vercel_origin
+    otel_endpoint = var.otel_endpoint
+    otel_headers = var.otel_headers
+    langchain_tracing = var.langchain_api_key != "" ? "true" : "false"
+    langchain_api_key = var.langchain_api_key
   })
 
   tags = {
