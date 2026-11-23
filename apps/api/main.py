@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from apps.api import conversations, datasets, geo, storage
-
+from packages.observability.otel import init_telemetry
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -24,6 +24,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Geo Agent API", lifespan=lifespan)
+init_telemetry("geo-agent-tier2-api", app=app)
 
 raw_origins = os.getenv("CORS_ORIGINS", "*").strip()
 allowed_origins = (

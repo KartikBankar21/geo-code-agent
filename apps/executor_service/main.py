@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadF
 from pydantic import BaseModel
 
 from apps.executor_service.pool_manager import INPUT_DIR, SandboxPoolManager
+from packages.observability.otel import init_telemetry
 
 EXECUTOR_SECRET = os.getenv("EXECUTOR_SHARED_SECRET", "").strip()
 pool_manager = SandboxPoolManager()
@@ -25,6 +26,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Geo Agent Execution Node (Tier 3)", lifespan=lifespan)
+init_telemetry("geo-agent-tier3-executor", app=app)
 
 
 class ExecuteRequest(BaseModel):

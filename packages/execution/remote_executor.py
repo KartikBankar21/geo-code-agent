@@ -3,6 +3,7 @@ import requests
 
 from packages.execution.executor import ExecutionResult
 from packages.execution.validator import validate_code
+from packages.observability.otel import inject_trace_headers
 
 
 class RemoteExecutor:
@@ -39,7 +40,7 @@ class RemoteExecutor:
                 "code": code,
                 "timeout": timeout,
             },
-            headers=self.headers,
+            headers = inject_trace_headers(self.headers),
             timeout=timeout + 15,
         )
         resp.raise_for_status()
@@ -59,7 +60,7 @@ class RemoteExecutor:
         try:
             requests.delete(
                 f"{self.base_url}/sessions/{conversation_id}",
-                headers=self.headers,
+                headers = inject_trace_headers(self.headers),
                 timeout=10,
             )
         except Exception:

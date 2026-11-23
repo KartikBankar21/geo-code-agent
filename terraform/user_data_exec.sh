@@ -19,7 +19,7 @@ docker build -t geo-agent-sandbox:dev -f packages/execution/Dockerfile.sandbox .
 # Lightweight venv for the Tier 3 pool manager API
 python3 -m venv .venv
 .venv/bin/pip install --upgrade pip
-.venv/bin/pip install fastapi "uvicorn[standard]" python-multipart boto3 pydantic
+.venv/bin/pip install fastapi "uvicorn[standard]" python-multipart boto3 pydantic opentelemetry-api opentelemetry-sdk opentelemetry-exporter-otlp-proto-http opentelemetry-instrumentation-fastapi opentelemetry-instrumentation-logging
 
 cat <<EOF > /etc/systemd/system/geo-executor.service
 [Unit]
@@ -36,6 +36,8 @@ Environment="AWS_REGION=${aws_region}"
 Environment="SANDBOX_POOL_SIZE=2"
 Environment="SANDBOX_MEMORY_LIMIT=1g"
 Environment="SANDBOX_IDLE_TTL_SECONDS=900"
+Environment="OTEL_EXPORTER_OTLP_ENDPOINT=${otel_endpoint}"
+Environment="OTEL_EXPORTER_OTLP_HEADERS=${otel_headers}"
 ExecStart=/opt/geo-code-agent/.venv/bin/uvicorn apps.executor_service.main:app --host 0.0.0.0 --port 8001
 Restart=always
 RestartSec=3

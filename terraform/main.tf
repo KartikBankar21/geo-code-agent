@@ -174,6 +174,10 @@ resource "aws_instance" "exec_node" {
     executor_secret = random_password.executor_secret.result
     s3_bucket       = aws_s3_bucket.artifacts.bucket
     aws_region      = var.aws_region
+    otel_endpoint = var.otel_endpoint
+    otel_headers = var.otel_headers
+    langchain_tracing = var.langchain_api_key != "" ? "true" : "false"
+    langchain_api_key = var.langchain_api_key
   })
 
   tags = {

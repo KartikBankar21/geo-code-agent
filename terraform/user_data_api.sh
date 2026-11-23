@@ -27,6 +27,11 @@ EXECUTOR_SHARED_SECRET=${executor_secret}
 S3_ARTIFACTS_BUCKET=${s3_bucket}
 AWS_REGION=${aws_region}
 CORS_ORIGINS=${vercel_origin}
+OTEL_EXPORTER_OTLP_ENDPOINT=${otel_endpoint}
+OTEL_EXPORTER_OTLP_HEADERS=${otel_headers}
+LANGCHAIN_TRACING_V2=${langchain_tracing}
+LANGCHAIN_API_KEY=${langchain_api_key}
+LANGCHAIN_PROJECT=geo-code-agent
 EOF
 
 cat <<EOF > /etc/systemd/system/geo-api.service

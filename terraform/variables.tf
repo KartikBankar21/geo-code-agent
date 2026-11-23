@@ -56,3 +56,23 @@ variable "ssh_key_name" {
   type        = string
   default     = ""
 }
+
+variable "otel_endpoint" {
+  description = "Grafana Cloud OTLP HTTPS endpoint (leave empty to disable)"
+  type        = string
+  default     = ""
+}
+
+variable "otel_headers" {
+  description = "Grafana Cloud OTLP Authorization header (e.g. Authorization=Basic ...)"
+  type        = string
+  sensitive   = true
+  default     = ""
+}
+
+variable "langchain_api_key" {
+  description = "Optional LangSmith API key for LangGraph visual tracing"
+  type        = string
+  sensitive   = true
+  default     = ""
+}

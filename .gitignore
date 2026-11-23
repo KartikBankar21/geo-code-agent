@@ -44,3 +44,7 @@ Thumbs.db
 
 *.tfvars
 .terraform/
+# Terraform & Secrets
+terraform/*.tfvars
+terraform/.terraform/
+*.tfstate*
